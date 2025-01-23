@@ -4,10 +4,9 @@ from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
 from openpyxl.drawing.image import Image
 from openpyxl.cell import Cell
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.worksheet.pagebreak import Break
 
 from datetime import datetime
-
-
 
 # Definições de Tamanhos
 CM2PIXEL = 37.7952755906
@@ -73,12 +72,6 @@ COURSE_FILTERS = [
     ['CCOMP'],
     ['DIR'],
 ]
-NUMBER_SERIES = [
-    8,
-    7,
-    8,
-    6,
-]
 TITLE_COURSE = {
     'ENG': '',
     'COMP': 'COMP',
@@ -91,8 +84,27 @@ TITLE_COURSE = {
     'CCOMP': '',
     'DIR': '',
 }
+SHEET_TYPES = [
+    'SEM PROF.',
+    'COM PROF.',
+    'COM ATEND.',
+]
 
 # Funções de Utilidade
+
+TERMINAL_COLORS = {'red': '\033[91m', 'green': '\033[92m', 'dark green': '\033[38;2;0;100;0m', 'yellow': '\033[93m', 'reset': '\033[0m', 'cyan': '\033[96m'}
+def colorize(text:str, color:str) -> str:
+    return f'{TERMINAL_COLORS[color.lower()]}{text}{TERMINAL_COLORS["reset"]}'
+
+def error(text:str) -> str:
+    print(colorize('[ERRO] ', 'red')+text)
+def success(text:str) -> str:
+    print(colorize('[SUCESSO] ', 'green')+text)
+def warning(text:str) -> str:
+    print(colorize('[AVISO] ', 'yellow')+text)
+def info(text:str) -> str:
+    print(colorize('[INFO] ', 'cyan')+text)
+
 def col_number(column: str) -> int:
     return column_index_from_string(column)
 def col_letter(column: int) -> str:
@@ -132,6 +144,10 @@ def time_to_integer(time_str:datetime) -> int:
     hours, minutes = map(int, time_str.split(':'))
     return (hours - 7) * 4 + (minutes - 30) // 15
 
+def get_digit(value:str|int) -> int:
+    if isinstance(value, int): return value
+    return int(''.join(filter(str.isdigit, value)))
+
 # Define os estilos das aulas e atendimentos
 CLASS_COLORS = [
     PatternFill(start_color=color, end_color=color, fill_type="solid")
@@ -169,7 +185,7 @@ ORANGE_FILL = PatternFill(start_color=ORANGE, end_color=ORANGE, fill_type="solid
 LIGHT_ORANGE_FILL = PatternFill(start_color=LIGHT_ORANGE, end_color=LIGHT_ORANGE, fill_type="solid")
 
 # Define os estilos de fonte
-FONT_BOLD_BLACK10 = Font(color=DARK_RED, bold=True, size=10, name='Arial')
+FONT_BOLD_RED10 = Font(color=DARK_RED, bold=True, size=10, name='Arial')
 FONT_BOLD_BLACK8 = Font(color=DARK_GRAY, bold=True, size=8, name='Arial')
 FONT_BOLD_WHITE8 = Font(color=WHITE, bold=True, size=8, name='Arial')
 FONT_BOLD_GRAY7 = Font(color=LIGHT_BLACK, bold=True, size=7, name='Arial')

@@ -2,24 +2,29 @@ import pandas as pd
 from datetime import datetime
 import unicodedata
 
+from settings import get_digit, error, success, warning, info
+
 import warnings
 warnings.filterwarnings('ignore')
 
 # CURRENT_DATE = datetime.now()
 CURRENT_DATE = '2024-08-05'
 
+cleaner = lambda x: x.strip().upper() if isinstance(x, str) else x
+
 # ================================================== Dados de entrada ==================================================
 
 data_config = pd.read_excel('Config_Grade.xlsx', 'Dados Configuráveis', header=1)
 
-DISCIPLINES_2_SLOTS_ATTENDANCE = data_config[data_config['Tipo'] == 'Disciplina com 2 Atendimentos']['Dado'].to_list()
-DISCIPLINES_4_SLOTS_CLASS = data_config[data_config['Tipo'] == 'Disciplina de 110 Horas']['Dado'].to_list()
-DISCIPLINES_GRUPED_CLASS = data_config[data_config['Tipo'] == 'Disciplina com Turmas Unidas']['Dado'].to_list()
-ASSISTANT_PROFESSORS = data_config[data_config['Tipo'] == 'Professor Auxiliar / Assistente de Ensino']['Dado'].to_list()
-NINJA_MONITORIES = data_config[data_config['Tipo'] == 'Monitoria Ninja']['Dado'].to_list()
-SPECIAL_CLASSES = data_config[data_config['Tipo'] == 'Aula Especial']['Dado'].to_list()
-EXCLUSIVE_TIMETABLE = data_config[data_config['Tipo'] == 'Grade Separada']['Dado'].to_list()
-DEVELOPER_LIFE_NAME = data_config[data_config['Tipo'] == 'Developer Life']['Dado'].unique()[0]
+DISCIPLINES_2_SLOTS_ATTENDANCE = data_config[data_config['Tipo'] == 'Disciplina com 2 Atendimentos']['Dado'].apply(cleaner).to_list()
+DISCIPLINES_4_SLOTS_CLASS = data_config[data_config['Tipo'] == 'Disciplina de 110 Horas']['Dado'].apply(cleaner).to_list()
+DISCIPLINES_GRUPED_CLASS = data_config[data_config['Tipo'] == 'Disciplina com Turmas Unidas']['Dado'].apply(cleaner).to_list()
+ASSISTANT_PROFESSORS = data_config[data_config['Tipo'] == 'Professor Auxiliar / Assistente de Ensino']['Dado'].apply(cleaner).to_list()
+NINJA_MONITORIES = data_config[data_config['Tipo'] == 'Monitoria Ninja']['Dado'].apply(cleaner).to_list()
+SPECIAL_CLASSES = data_config[data_config['Tipo'] == 'Aula Especial']['Dado'].apply(cleaner).to_list()
+EXCLUSIVE_TIMETABLE = data_config[data_config['Tipo'] == 'Grade Separada']['Dado'].apply(cleaner).to_list()
+DEVELOPER_LIFE_NAME = data_config[data_config['Tipo'] == 'Developer Life']['Dado'].apply(cleaner).unique()[0]
+NEW_TIMETABLE = data_config[data_config['Tipo'] == 'Nova Grade']['Dado'].apply(cleaner).unique()[0] == 'SIM'
 
 COURSE_PARSER = {
     'GRENGCOMP': ['ENG', 'ENG', 'COMP', 'COMP', 'COMP', 'COMP', 'COMP', 'COMP', 'COMP', 'COMP'],
@@ -40,22 +45,22 @@ TYPE_PRIORITY = {
 }
 
 # Definição de horários fixos para aulas
-old_timetable = True
-FIXED_START_HOURS = ['07:30', '09:45', '12:00', '13:30', '15:45', '18:00'] if old_timetable else ['07:30', '09:45', '12:00' '14:15', '16:30', '19:00']
-FIXED_END_HOURS = ['09:30', '11:45', '13:15', '15:30', '17:45' ,'20:00'] if old_timetable else ['09:30', '11:45', '14:00', '16:15', '18:30', '21:00']
+FIXED_START_HOURS = ['07:30', '09:45', '12:00', '14:15', '16:30', '19:00'] if NEW_TIMETABLE else  ['07:30', '09:45', '12:00', '13:30', '15:45', '18:00'] 
+FIXED_END_HOURS = ['09:30', '11:45', '14:00', '16:15', '18:30', '21:00'] if NEW_TIMETABLE else ['09:30', '11:45', '13:15', '15:30', '17:45' ,'20:00']
 
-print("Carregando dados adicionados manualmente...")
+info('Carregando dados adicionados manualmente')
 data_manual_raw = pd.read_excel('Config_Grade.xlsx', 'Horários Manuais', header=1)
 columns_to_check = ['Curso', 'Série', 'Turma Pref', 'Disciplina', 'Tipo', 'Dia da Semana', 'Hora início', 'Hora fim']
 for i, row in data_manual_raw.iterrows():
     if row[columns_to_check].isnull().any():
         empty_columns = row[columns_to_check].index[row[columns_to_check].isnull()].tolist()
-        print(f"    Linha [ {i+3} ] será removida devido as colunas {empty_columns} estarem vazias")
+        warning(f'Linha [ {i+3} ] será removida devido as colunas {empty_columns} estarem vazias')
 data_manual = data_manual_raw.dropna(subset=columns_to_check)
 
-print("Carregando dados do Relatório...")
+info('Carregando dados do Relatório')
 data_raw = pd.read_excel('ReservasAcademicas.xlsx', header=1)
-print("Dados carregados!\nProcessando...")
+success('Dados carregados!')
+info('Processando dados')
 
 # ================================================== Limpeza dos Dados ==================================================
 
@@ -92,7 +97,7 @@ data_cleaned = data[
 
 
 
-data_cleaned = data_cleaned.map(lambda x: x.strip().upper() if isinstance(x, str) else x)
+data_cleaned = data_cleaned.map(cleaner)
 data_cleaned = data_cleaned[~data_cleaned['Disciplina'].isin(['PROJETO FINAL - CAPSTONE'])]
 data_cleaned = data_cleaned[
     ((data_cleaned['Disciplina'] == DEVELOPER_LIFE_NAME) 
@@ -111,12 +116,21 @@ data_cleaned['Docente'] = data_cleaned['Docente'].map(
 counts = data_cleaned.groupby([
     'Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref', 'Hora início', 'Hora fim', 'Docente',
 ])['Dia da Semana'].value_counts().reset_index(name='counts')
+
 rooms = data_cleaned.groupby([
     'Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref', 'Hora início', 'Hora fim', 'Docente',
 ])['Sala'].apply(lambda x: ', '.join(set(x.dropna()))).reset_index()
-data_counted = result = pd.merge(rooms, counts, on=[
+
+classes = data_cleaned.drop_duplicates([
+    'Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref', 'Hora início', 'Hora fim'
+]).groupby([
+    'Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref'
+]).size().reset_index(name='Ocorrências')
+
+data_counted = pd.merge(rooms, counts, 'left', [
     'Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref', 'Hora início', 'Hora fim', 'Docente',
 ]).drop_duplicates()
+data_counted = data_counted.merge(classes, 'left', ['Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref'])
 
 def Treat_docente(row: pd.Series) -> pd.Series:
     if row['Tipo'] not in ['MONITORIA', 'MONITORIA NINJA']:
@@ -183,58 +197,73 @@ def treat_turma(row: pd.Series) -> pd.DataFrame:
 data_turma_treated = pd.concat(data_docente_treated.apply(treat_turma, axis=1).tolist(), ignore_index=True)\
                 .drop_duplicates()\
                 .sort_values(['Curso','Disciplina', 'Turma Pref', 'Tipo', 'Dia da Semana'])
+
+def treat_serie(row):
+    if row['Curso'] == 'ADM/ECO' and ('DP' in row['Turma Pref']):
+        return str(row['Série']) + 'DP'
+    elif row['Curso'] in ['ADM', 'ECO']:
+        return str(row['Série']) + row['Curso']
+    return row['Série']
+
+data_serie_treated = data_turma_treated.copy()
+data_serie_treated['Série'] = data_serie_treated.apply(treat_serie, axis=1)
             
 # ================================================== Filtragem dos Dados ==================================================
 
-max_counts = data_turma_treated.groupby(['Curso', 'Série', 'Turma Pref'])['counts'].max().reset_index(name='max')
-data_slots = data_turma_treated.merge(max_counts, on=['Curso', 'Série', 'Turma Pref'], how='left')
-data_slots['Mínimo de Aulas'] = data_slots['max'].fillna(0).apply(lambda x: min([max([x//4, 4]), x]))
-data_slots.loc[data_slots['Disciplina'].isin(EXCLUSIVE_TIMETABLE), 'Mínimo de Aulas'] = data_slots.loc[data_slots['Disciplina'].isin(EXCLUSIVE_TIMETABLE), 'max']//2
+max_counts = data_serie_treated.groupby(['Curso', 'Série', 'Turma Pref'])['counts'].max().reset_index(name='max')
+data_slots_options = data_serie_treated.merge(max_counts, on=['Curso', 'Série', 'Turma Pref'], how='left')
+data_slots_options['Mínimo de Aulas'] = data_slots_options['max'].fillna(0).apply(lambda x: min([max([x//4, 4]), x]))
+data_slots_options.loc[data_slots_options['Disciplina'].isin(EXCLUSIVE_TIMETABLE), 'Mínimo de Aulas'] = data_slots_options.loc[data_slots_options['Disciplina'].isin(EXCLUSIVE_TIMETABLE), 'max']//2
 
-
-one_slots = data_slots[
-    (data_slots['Tipo'].isin(['ATENDIMENTO / PLANTÃO', 'MONITORIA NINJA', 'MONITORIA'])) 
-    & (~data_slots['Disciplina'].isin(DISCIPLINES_2_SLOTS_ATTENDANCE))
-    & ((data_slots['counts'] >= data_slots['Mínimo de Aulas']) | (data_slots['Sala'] == 'AULA REMOTA'))
-    & (~data_slots['Disciplina'].isin(EXCLUSIVE_TIMETABLE))
-    & (data_slots['Disciplina'] != DEVELOPER_LIFE_NAME)
+one_slots = data_slots_options[
+    (data_slots_options['Tipo'].isin(['ATENDIMENTO / PLANTÃO', 'MONITORIA NINJA', 'MONITORIA'])) 
+    & (~data_slots_options['Disciplina'].isin(DISCIPLINES_2_SLOTS_ATTENDANCE))
+    & ((data_slots_options['Ocorrências'] == 1) 
+        | (data_slots_options['counts'] >= data_slots_options['Mínimo de Aulas']) 
+        | (data_slots_options['Sala'] == 'AULA REMOTA'))
+    & (~data_slots_options['Disciplina'].isin(EXCLUSIVE_TIMETABLE))
+    & (data_slots_options['Disciplina'] != DEVELOPER_LIFE_NAME)
 ]
 one_slots = one_slots\
-                .groupby(['Curso', 'Disciplina', 'Tipo', 'Turma Pref'], group_keys=False)\
+                .groupby(['Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref'], group_keys=False)\
                 .apply(lambda group: group.nlargest(1, columns='counts'))
                 
-two_slots = data_slots[
-    ((((~data_slots['Tipo'].isin(['ATENDIMENTO / PLANTÃO', 'MONITORIA NINJA', 'MONITORIA'])) 
-       | (data_slots['Disciplina'].isin(DISCIPLINES_2_SLOTS_ATTENDANCE)))
-      & (~data_slots['Disciplina'].isin(DISCIPLINES_4_SLOTS_CLASS)))
-     | (data_slots['Tipo'] == 'ATIVIDADE EXTRA CURRICULAR'))
-    & ((data_slots['counts'] >= data_slots['Mínimo de Aulas']) | (data_slots['Sala'] == 'AULA REMOTA'))
-    & (~data_slots['Disciplina'].isin(EXCLUSIVE_TIMETABLE))
-    & (data_slots['Disciplina'] != DEVELOPER_LIFE_NAME)
+two_slots = data_slots_options[
+    ((((~data_slots_options['Tipo'].isin(['ATENDIMENTO / PLANTÃO', 'MONITORIA NINJA', 'MONITORIA'])) 
+        | (data_slots_options['Disciplina'].isin(DISCIPLINES_2_SLOTS_ATTENDANCE)))
+            & (~data_slots_options['Disciplina'].isin(DISCIPLINES_4_SLOTS_CLASS)))
+        | (data_slots_options['Tipo'] == 'ATIVIDADE EXTRA CURRICULAR'))
+    & ((data_slots_options['Ocorrências'] == 2) 
+        | (data_slots_options['counts'] >= data_slots_options['Mínimo de Aulas']) 
+        | (data_slots_options['Sala'] == 'AULA REMOTA'))
+    & (~data_slots_options['Disciplina'].isin(EXCLUSIVE_TIMETABLE))
+    & (data_slots_options['Disciplina'] != DEVELOPER_LIFE_NAME)
 ]                
 two_slots = two_slots\
-                .groupby(['Curso', 'Disciplina', 'Tipo', 'Turma Pref'], group_keys=False)\
+                .groupby(['Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref'], group_keys=False)\
                 .apply(lambda group: group.nlargest(2, columns='counts'))
                 
-four_slots = data_slots[
-    (data_slots['Tipo'] == 'AULA') 
-    & (data_slots['Disciplina'].isin(DISCIPLINES_4_SLOTS_CLASS))
-    & ((data_slots['counts'] >= data_slots['Mínimo de Aulas']) | (data_slots['Sala'] == 'AULA REMOTA'))
-    & (~data_slots['Disciplina'].isin(EXCLUSIVE_TIMETABLE))
+four_slots = data_slots_options[
+    (data_slots_options['Tipo'] == 'AULA') 
+    & (data_slots_options['Disciplina'].isin(DISCIPLINES_4_SLOTS_CLASS))
+    & ((data_slots_options['Ocorrências'] == 4) 
+        | (data_slots_options['counts'] >= data_slots_options['Mínimo de Aulas']) 
+        | (data_slots_options['Sala'] == 'AULA REMOTA'))
+    & (~data_slots_options['Disciplina'].isin(EXCLUSIVE_TIMETABLE))
 ]
 four_slots = four_slots\
-                .groupby(['Curso', 'Disciplina', 'Tipo', 'Turma Pref'], group_keys=False)\
+                .groupby(['Curso', 'Série', 'Disciplina', 'Tipo', 'Turma Pref'], group_keys=False)\
                 .apply(lambda group: group.nlargest(4, columns='counts'))
                 
-special_slots = data_slots[
-    (data_slots['Disciplina'].isin(EXCLUSIVE_TIMETABLE))
-    & (data_slots['counts'] >= data_slots['Mínimo de Aulas'])
+special_slots = data_slots_options[
+    (data_slots_options['Disciplina'].isin(EXCLUSIVE_TIMETABLE))
+    & (data_slots_options['counts'] >= data_slots_options['Mínimo de Aulas'])
 ]
 
-developer_life_slots = data_slots[
-    (data_slots['Disciplina'] == DEVELOPER_LIFE_NAME)
-    & (data_slots['Tipo'] == 'ATENDIMENTO / PLANTÃO')
-    & (data_slots['counts'] >= data_slots['Mínimo de Aulas'])
+developer_life_slots = data_slots_options[
+    (data_slots_options['Disciplina'] == DEVELOPER_LIFE_NAME)
+    & (data_slots_options['Tipo'] == 'ATENDIMENTO / PLANTÃO')
+    & (data_slots_options['counts'] >= data_slots_options['Mínimo de Aulas'])
 ]
 
 data_slots = pd.concat([one_slots, two_slots, four_slots, special_slots, developer_life_slots])
@@ -256,12 +285,15 @@ def Treat_slots(row: pd.Series) -> pd.Series:
     if (row['Tipo'] in ['ATIVIDADE EXTRA CURRICULAR', 'AULA']) and (row['Disciplina'] not in DISCIPLINES_4_SLOTS_CLASS) and (row['Disciplina'] not in SPECIAL_CLASSES):
         time = time_difference(row['Hora início'], row['Hora fim'])
         if  time != 2:
-            if time < 1.75: 
-                print(f'   A aula da disciplina {row["Disciplina"]} da turma {row["Curso"]}-{row["Turma Pref"]} foi agendada na {row["Dia da Semana"]} com menos de 2 horas de duração: {row["Hora início"]} às {row["Hora fim"]}')
             if row['Hora início'] not in FIXED_START_HOURS:
                 row['Hora início'] = closest_time(row['Hora início'], FIXED_START_HOURS)
             if row['Hora fim'] not in FIXED_END_HOURS:
                 row['Hora fim'] = closest_time(row['Hora fim'], FIXED_END_HOURS)
+            if time < 1.75: 
+                warning(f'A aula da disciplina {row["Disciplina"]} da turma {row["Curso"]}-{get_digit(row['Série'])}{row["Turma Pref"]} foi agendada na {row["Dia da Semana"]} com menos de 2 horas de duração')
+                if time_difference(row['Hora início'], row['Hora fim']) < 1.75:
+                    error(f'A aula da disciplina {row["Disciplina"]} da turma {row["Curso"]}-{get_digit(row['Série'])}{row["Turma Pref"]} foi removida por ter menos de 2h de duração mesmo após correção')
+                    return pd.Series()  
     return row
 
 data_slots_treated = data_slots.apply(Treat_slots, axis=1)
@@ -277,6 +309,7 @@ data_manual['Docente'] = data_manual['Docente'].fillna('')
 data_manual['Titular'] = data_manual['Docente']
 data_manual['Origem'] = 'Manual'
 data_manual['counts'] = 0
+data_manual['Série'] = data_manual.apply(treat_serie, axis=1)
 data_manual['Sala'] = ''
 
 data_full = pd.concat([data_slots_treated, data_manual], ignore_index=True)
@@ -316,3 +349,4 @@ data_slots_positioned['Posição'] = data_slots_positioned.apply(
 )
 
 DATA = data_slots_positioned.copy()
+success('Processamento conluido!\n')
