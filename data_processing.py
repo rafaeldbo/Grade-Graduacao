@@ -164,11 +164,11 @@ def load_space_data() -> pd.DataFrame:
     # OBS.: chamaremos de SLOT um horario do dia da semana em que uma atividade ocorre
 
     contagem = data_cleaned.groupby([ # contando quantidade de SLOTs de cada disciplina
-        'cod_turma', 'curso', 'serie', 'turma', 'nome_disciplina', 'tipo_atividade', 'hora_inicio', 'hora_fim', 'docentes',
+        'cod_turma', 'curso', 'serie', 'turma', 'cod_disciplina', 'nome_disciplina', 'tipo_atividade', 'hora_inicio', 'hora_fim', 'docentes',
     ])['dia_semana'].value_counts().reset_index(name='contagem')
 
     rooms = data_cleaned.groupby([  # agrupando salas de cada SLOT
-        'cod_turma', 'curso', 'serie', 'turma', 'nome_disciplina', 'tipo_atividade', 'hora_inicio', 'hora_fim', 'docentes',
+        'cod_turma', 'curso', 'serie', 'turma', 'cod_disciplina', 'nome_disciplina', 'tipo_atividade', 'hora_inicio', 'hora_fim', 'docentes',
     ])['sala'].apply(lambda x: ', '.join(set(x.dropna()))).reset_index()
 
     classes = data_cleaned.drop_duplicates([ # contando quantas vezes cada disciplina ocorre na semana
@@ -178,7 +178,7 @@ def load_space_data() -> pd.DataFrame:
     ]).size().reset_index(name='n_ocorrencias')
 
     data_counted = pd.merge(rooms, contagem, 'left', [ # juntando as informações
-        'cod_turma', 'curso', 'serie', 'turma', 'nome_disciplina', 'tipo_atividade', 'hora_inicio', 'hora_fim', 'docentes',
+        'cod_turma', 'curso', 'serie', 'turma', 'cod_disciplina', 'nome_disciplina', 'tipo_atividade', 'hora_inicio', 'hora_fim', 'docentes',
     ]).drop_duplicates()
     data_counted = data_counted.merge(classes, 'left', ['cod_turma', 'nome_disciplina', 'tipo_atividade'])
 

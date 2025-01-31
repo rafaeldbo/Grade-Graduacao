@@ -17,25 +17,25 @@ if not path.isfile(config_filepath):
 
 def load_manual_data() -> pd.DataFrame:
     info('Carregando dados adicionados manualmente')
-    data_manual_raw = pd.read_excel(config_filepath, 'Horários Manuais', header=1)
+    data_manual_raw = pd.read_excel(config_filepath, 'Adição Horários Manuais', header=1)
+    columns_to_check = ['Curso', 'Série', 'Turma', 'Nome Disciplina', 'Tipo Atividade', 'Dia da Semana', 'Hora início', 'Hora fim']
+    for i, row in data_manual_raw.iterrows():
+        if row[columns_to_check].isnull().any():
+            empty_columns = row[columns_to_check].index[row[columns_to_check].isnull()].tolist()
+            warning(f'Linha [{i+3}] da aba [Adição Horários Manuais] será ignorada devido as colunas {empty_columns} estarem vazias')
+    data_manual_raw = data_manual_raw.dropna(subset=columns_to_check)
     data_manual_raw.rename(columns={
         'Curso': 'curso',
         'Série': 'serie',
-        'Turma Pref': 'turma',
-        'Disciplina': 'nome_disciplina',
-        'Tipo': 'tipo_atividade',
+        'Turma': 'turma',
+        'Nome Disciplina': 'nome_disciplina',
+        'Tipo Atividade': 'tipo_atividade',
         'Dia da Semana': 'dia_semana',
         'Hora início': 'hora_inicio',
         'Hora fim': 'hora_fim',
         'Docente': 'docentes',
     }, inplace=True)
-    columns_to_check = ['curso', 'serie', 'turma', 'nome_disciplina', 'tipo_atividade', 'dia_semana', 'hora_inicio', 'hora_fim']
-    for i, row in data_manual_raw.iterrows():
-        if row[columns_to_check].isnull().any():
-            empty_columns = row[columns_to_check].index[row[columns_to_check].isnull()].tolist()
-            warning(f'Linha [ {i+3} ] será removida devido as colunas {empty_columns} estarem vazias')
-    data_manual = data_manual_raw.dropna(subset=columns_to_check)
-
+    data_manual = data_manual_raw.copy()
     data_manual = data_manual.fillna('')
     data_manual = data_manual.map(cleaner)
     data_manual = data_manual.drop(['Observação'], axis=1)
@@ -61,3 +61,60 @@ def load_configs() -> dict:
     configs['DEVELOPER_LIFE_NAME'] = data_config[data_config['Tipo'] == 'Developer Life']['Dado'].apply(cleaner).unique()[0]
     configs['NEW_TIMETABLE'] = data_config[data_config['Tipo'] == 'Nova Grade']['Dado'].apply(cleaner).unique()[0] == 'SIM'
     return configs
+
+def remove_by_filters(data:pd.DataFrame) -> pd.DataFrame:
+    data_filters_raw = pd.read_excel(config_filepath, 'Remoção Horários Space', header=1)
+    columns_to_check = ['Curso', 'Série', 'Turma', 'Código da Disciplina']
+    for i, row in data_filters_raw.iterrows():
+        if row[columns_to_check].isnull().any():
+            empty_columns = row[columns_to_check].index[row[columns_to_check].isnull()].tolist()
+            warning(f'Linha [{i+3}] da aba [Remoção Horários Space] será ignorada devido as colunas {empty_columns} estarem vazias')
+    data_filters_raw = data_filters_raw.dropna(subset=columns_to_check)
+    data_filters_raw.rename(columns={
+        'Curso': 'curso',
+        'Série': 'serie',
+        'Turma': 'turma',
+        'Código da Disciplina': 'cod_disciplina',
+        'Tipo Atividade': 'tipo_atividade',
+        'Dia da Semana': 'dia_semana',
+    }, inplace=True)
+    print(data_filters_raw)
+    data_filters = data_filters_raw.copy()
+    data_filters['cod_turma'] = data_filters.apply(lambda row: f"{row['curso']}_{row['serie']}{row['turma']}", axis=1)
+    
+    data_filters['filtro_base'] = data_filters.apply(lambda row: f"{row['cod_turma']}_{row['cod_disciplina']}", axis=1)
+    data_filters.loc[(~data_filters['tipo_atividade'].isnull()) & (~data_filters['dia_semana'].isnull()), 'filtro_base'] = None
+    print(data_filters['filtro_base'].dropna().to_list())
+    
+    data_filters['filtro_tipo'] = data_filters.apply(lambda row: f"{row['cod_turma']}_{row['cod_disciplina']}_{row['tipo_atividade']}", axis=1)
+    data_filters.loc[(data_filters['dia_semana'].isnull()), 'filtro_tipo'] = None
+    print(data_filters['filtro_tipo'].dropna().to_list())
+    
+    data_filters['filtro_dia'] = data_filters.apply(lambda row: f"{row['cod_turma']}_{row['cod_disciplina']}_{row['dia_semana']}", axis=1)
+    data_filters.loc[(data_filters['tipo_atividade'].isnull()), 'filtro_dia'] = None
+    print(data_filters['filtro_dia'].dropna().to_list())
+    
+    data_filters['filtro_completo'] = data_filters.apply(lambda row: f"{row['cod_turma']}_{row['cod_disciplina']}_{row['tipo_atividade']}_{row['dia_semana']}", axis=1)
+    data_filters.loc[(data_filters['tipo_atividade'].isnull()) & (data_filters['dia_semana'].isnull()), 'filtro_completo'] = None
+    print(data_filters['filtro_completo'].dropna().to_list())
+
+    
+    data_filtering = data.copy()
+    data_filtering['filtro_base'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_{row['cod_disciplina']}", axis=1)
+    data_filtering['filtro_tipo'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_{row['cod_disciplina']}_{row['tipo_atividade']}", axis=1)
+    data_filtering['filtro_dia'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_{row['cod_disciplina']}_{row['dia_semana']}", axis=1)
+    data_filtering['filtro_completo'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_{row['cod_disciplina']}_{row['tipo_atividade']}_{row['dia_semana']}", axis=1)
+    
+    data_filtering = data_filtering[
+        (~data_filtering['filtro_base'].isin(data_filters['filtro_base']))
+        & (~data_filtering['filtro_tipo'].isin(data_filters['filtro_tipo']))
+        & (~data_filtering['filtro_dia'].isin(data_filters['filtro_dia']))
+        & (~data_filtering['filtro_completo'].isin(data_filters['filtro_completo']))
+    ]
+
+    
+    data_filtered = data_filtering.drop(['filtro_base', 'filtro_tipo', 'filtro_dia', 'filtro_completo'], axis=1)
+    return data_filtered, data_filtering
+    
+    
+    

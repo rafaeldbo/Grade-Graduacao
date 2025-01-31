@@ -13,7 +13,10 @@ def warning(text:str) -> str:
 def info(text:str) -> str:
     print(colorize('[INFO] ', 'cyan')+text)
 
-cleaner = lambda x: x.strip().upper() if isinstance(x, str) else x
+def cleaner(text:str) -> str:
+    if isinstance(text, str): 
+        return text.strip().upper()
+    return text
 
 def time_to_integer(time:str|datetime, start_value:int=7) -> int:
     time_str = time.strftime('%H:%M') if not isinstance(time, str) else time    
