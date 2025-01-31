@@ -1,3 +1,7 @@
 openpyxl
 pillow
 pandas
+urllib3
+SQLAlchemy
+python-dotenv
+pyodbc

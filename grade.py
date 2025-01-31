@@ -1,11 +1,11 @@
 import pandas as pd
 import openpyxl
 
-# import warnings
-# warnings.filterwarnings('ignore')
-import traceback
+from os import path
+ABS_PATH = path.abspath(path.dirname(__file__))
 
-from data_processing import DATA, DISCIPLINES_4_SLOTS_CLASS, DISCIPLINES_GRUPED_CLASS, FIXED_START_HOURS, FIXED_END_HOURS, SPECIAL_CLASSES, EXCLUSIVE_TIMETABLE
+from data_processing import load_space_data
+from utils import warning, info, error, success, time_to_integer, get_digit, time_differece, float_to_time
 from settings import *
 
 def conflit(sheet:Worksheet, start_col: int, start_row: int, end_col: int, end_row: int) -> bool:
@@ -17,85 +17,100 @@ def conflit(sheet:Worksheet, start_col: int, start_row: int, end_col: int, end_r
     return True
 
 # Cria um novo workbook e seleciona a planilha ativa
-def slot_class(sheet:Worksheet, data:dict, timetable_start_col: int, timetable_start_row: int, show_professors: bool=False) -> None:
-    start_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + (4 if (data['Posição'] == 2) else 2))
-    end_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + (2 if (data['Posição'] == 1) else 4)) 
-    start_row = time_to_integer(data['Hora início']) + timetable_start_row + 6
-    end_row = time_to_integer(data['Hora fim']) + timetable_start_row + 5
+def slot_class(sheet:Worksheet, data:dict, timetable_start_col: int, timetable_start_row: int, show_professors: bool=False, show_errors: bool=False) -> None:
+    start_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + (4 if (data['posicao'] == 2) else 2))
+    end_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + (2 if (data['posicao'] == 1) else 4)) 
+    start_row = time_to_integer(data['hora_inicio']) + timetable_start_row + 6
+    end_row = time_to_integer(data['hora_fim']) + timetable_start_row + 5
     
     if not conflit(sheet, col_number(start_col), start_row, col_number(end_col), end_row):
-        error(f'Não foi possível adicionar a {data['Tipo']} da disciplina {data["Disciplina"]} da turma {data['Curso']}-{get_digit(data['Série'])}{data['Turma Pref']} no horário {data["Hora início"]} às {data["Hora fim"]} da {data['Dia da Semana']} devido a um conflito com outro disciplina já adicionada')
+        if show_errors:
+            error(f'Não foi possível adicionar a {data["tipo_atividade"]} da disciplina {data["nome_disciplina"]} da turma {data["curso"]}-{get_digit(data["serie"])}{data["turma"]} no horário {data["hora_inicio"]} às {data["hora_fim"]} da {data["dia_semana"]} devido a um conflito com outro disciplina já adicionada')
+        return
+    duration = time_differece(data['hora_inicio'], data['hora_fim'])
+    if not (duration == 2 or (duration == 1.5 and data['nome_disciplina'] in CONFIGS['DISCIPLINES_4_SLOTS_CLASS']) or (duration > 3)):
+        if show_errors:
+            error(f'Não foi possível adicionar a {data["tipo_atividade"]} da disciplina {data["nome_disciplina"]} da turma {data["curso"]}-{get_digit(data["serie"])}{data["turma"]} pois a duração da aula é diferente de 2h')
+            print(f'Horário: {data["hora_inicio"]} às {data["hora_fim"]} da {data["dia_semana"]} | Duração: {float_to_time(duration)}')
         return
     
-    color = CLASS_COLORS[data['Cor']] if data['Cor'] < 6 else CLASS_COLORS[-1]
+    color = CLASS_COLORS[data['cor']] if data['cor'] < 6 else CLASS_COLORS[-1]
     
     slot_title_cell = merge_cells(sheet, f'{start_col}{start_row}:{end_col}{start_row+2}')
-    cell_styles(slot_title_cell, data['Disciplina'], FONT_BOLD_GRAY7, color, TOP_ALIGNMENT)
+    cell_styles(slot_title_cell, data['nome_disciplina'], FONT_BOLD_GRAY7, color, TOP_ALIGNMENT)
     
     slot_middle_cell = merge_cells(sheet, f'{start_col}{start_row+3}:{end_col}{start_row+3}')
-    if data['Disciplina'] in DISCIPLINES_4_SLOTS_CLASS:
-        cell_styles(slot_middle_cell, f'{data["Hora início"]} às {data["Hora fim"]}', FONT_BOLD_RED7)
+    if data['nome_disciplina'] in CONFIGS['DISCIPLINES_4_SLOTS_CLASS']:
+        cell_styles(slot_middle_cell, f'{data["hora_inicio"]} às {data["hora_fim"]}', FONT_BOLD_RED7)
     slot_middle_cell.fill = color
             
     slot_footer_cell = merge_cells(sheet, f'{start_col}{start_row+4}:{end_col}{end_row}')
     cell_styles(slot_footer_cell, font=FONT_BASE7, fill=color, alignment=BOTTOM_ALIGNMENT)
-    if show_professors or (data['Disciplina'] in EXCLUSIVE_TIMETABLE): 
-        slot_footer_cell.value = data["Titular"]
+    if show_professors or (data['nome_disciplina'] in CONFIGS['EXCLUSIVE_TIMETABLE']): 
+        slot_footer_cell.value = data["titular"]
 
 def slot_attendance(sheet:Worksheet, data:dict, timetable_start_col: int, timetable_start_row: int) -> None:
-    start_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + (4 if (data['Posição'] == 2) else 2))
-    end_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + (2 if (data['Posição'] == 1) else 4)) 
-    start_row = time_to_integer(data['Hora início']) + timetable_start_row + 6
-    end_row = time_to_integer(data['Hora fim']) + timetable_start_row + 5
+    start_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + (4 if (data['posicao'] == 2) else 2))
+    end_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + (2 if (data['posicao'] == 1) else 4)) 
+    start_row = time_to_integer(data['hora_inicio']) + timetable_start_row + 6
+    end_row = time_to_integer(data['hora_fim']) + timetable_start_row + 5
     
     if not conflit(sheet, col_number(start_col), start_row, col_number(end_col), end_row):
-        error(f'Não foi possível adicionar a {data['Tipo']} da disciplina {data["Disciplina"]} da turma {data['Curso']}-{get_digit(data['Série'])}{data['Turma Pref']} no horário {data["Hora início"]} às {data["Hora fim"]} da {data['Dia da Semana']} devido a um conflito com outro disciplina já adicionada')
+        error(f'Não foi possível adicionar a {data["tipo_atividade"]} da disciplina {data["nome_disciplina"]} da turma {data["curso"]}-{get_digit(data["serie"])}{data["turma"]} no horário {data["hora_inicio"]} às {data["hora_fim"]} da {data["dia_semana"]} devido a um conflito com outro disciplina já adicionada')
         return
+    duration = time_differece(data['hora_inicio'], data['hora_fim'])
+    if duration != 1.5:
+        error(f'Não foi possível adicionar a {data["tipo_atividade"]} da disciplina {data["nome_disciplina"]} da turma {data["curso"]}-{get_digit(data["serie"])}{data["turma"]} pois a duração da aula é diferente de 1h30')
+        print(f'Horário: {data["hora_inicio"]} às {data["hora_fim"]} da {data["dia_semana"]} | Duração: {float_to_time(duration)}')
     
-    color = ATTENDANCE_BORDERS[data['Cor']] if data['Cor'] < 6 else ATTENDANCE_BORDERS[-1]
+    color = ATTENDANCE_BORDERS[data['cor']] if data['cor'] < 6 else ATTENDANCE_BORDERS[-1]
     
     slot_title_cell = merge_cells(sheet, f'{start_col}{start_row}:{end_col}{start_row+1}')
     cell_styles(slot_title_cell, 'Horário de Atendimento', FONT_BOLD_GRAY7, alignment=TOP_ALIGNMENT)
     
     slot_middle_cell = merge_cells(sheet, f'{start_col}{start_row+2}:{end_col}{start_row+3}')
-    cell_styles(slot_middle_cell, data['Disciplina'], FONT_BASE7, alignment=CENTER_ALIGNMENT)
+    cell_styles(slot_middle_cell, data['nome_disciplina'], FONT_BASE7, alignment=CENTER_ALIGNMENT)
     
     slot_footer_cell = merge_cells(sheet, f'{start_col}{start_row+4}:{end_col}{end_row}')
-    cell_styles(slot_footer_cell,  f'{data["Hora início"]} às {data["Hora fim"]}', FONT_BASE7, alignment=BOTTOM_ALIGNMENT)
+    cell_styles(slot_footer_cell,  f'{data["hora_inicio"]} às {data["hora_fim"]}', FONT_BASE7, alignment=BOTTOM_ALIGNMENT)
     
     apply_border(sheet, f'{start_col}{start_row}:{end_col}{end_row}', color)
     
 def slot_monitor(sheet:Worksheet, data:dict, timetable_start_col: int, timetable_start_row: int) -> None:
-    start_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + (4 if (data['Posição'] == 2) else 2))
-    end_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + (2 if (data['Posição'] == 1) else 4)) 
-    start_row = time_to_integer(data['Hora início']) + timetable_start_row + 6
-    end_row = time_to_integer(data['Hora fim']) + timetable_start_row + 5
+    start_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + (4 if (data['posicao'] == 2) else 2))
+    end_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + (2 if (data['posicao'] == 1) else 4)) 
+    start_row = time_to_integer(data['hora_inicio']) + timetable_start_row + 6
+    end_row = time_to_integer(data['hora_fim']) + timetable_start_row + 5
 
     if not conflit(sheet, col_number(start_col), start_row, col_number(end_col), end_row):
-        error(f'Não foi possível adicionar a {data['Tipo']} da disciplina {data["Disciplina"]} da turma {data['Curso']}-{get_digit(data['Série'])}{data['Turma Pref']} no horário {data["Hora início"]} às {data["Hora fim"]} da {data['Dia da Semana']} devido a um conflito com outro disciplina já adicionada')
+        error(f'Não foi possível adicionar a {data["tipo_atividade"]} da disciplina {data["nome_disciplina"]} da turma {data["curso"]}-{get_digit(data["serie"])}{data["turma"]} no horário {data["hora_inicio"]} às {data["hora_fim"]} da {data["dia_semana"]} devido a um conflito com outro disciplina já adicionada')
         return
+    duration = time_differece(data['hora_inicio'], data['hora_fim'])
+    if duration < 1.5:
+        error(f'Não foi possível adicionar a {data["tipo_atividade"]} da disciplina {data["nome_disciplina"]} da turma {data["curso"]}-{get_digit(data["serie"])}{data["turma"]} pois a duração da aula é diferente de 1h30')
+        print(f'Horário: {data["hora_inicio"]} às {data["hora_fim"]} da {data["dia_semana"]} | Duração: {float_to_time(duration)}')
     
-    color = ATTENDANCE_BORDERS[data['Cor']] if data['Cor'] < 6 else ATTENDANCE_BORDERS[-1]    
+    color = ATTENDANCE_BORDERS[data['cor']] if data['cor'] < 6 else ATTENDANCE_BORDERS[-1]    
     
     slot_title_cell = merge_cells(sheet, f'{start_col}{start_row}:{end_col}{start_row}')
     cell_styles(slot_title_cell, 'Monitoria', FONT_BOLD_GRAY7)
     
     slot_subtitle_cell = merge_cells(sheet, f'{start_col}{start_row+1}:{end_col}{start_row+1}')
-    cell_styles(slot_subtitle_cell, data['Docente'], FONT_BASE7)
+    cell_styles(slot_subtitle_cell, data['docentes'], FONT_BASE7)
     
     slot_middle_cell = merge_cells(sheet, f'{start_col}{start_row+2}:{end_col}{start_row+3}')
-    cell_styles(slot_middle_cell, data['Disciplina'], FONT_BASE7, alignment=CENTER_ALIGNMENT)
+    cell_styles(slot_middle_cell, data['nome_disciplina'], FONT_BASE7, alignment=CENTER_ALIGNMENT)
     
     slot_footer_cell = merge_cells(sheet, f'{start_col}{start_row+4}:{end_col}{end_row}')
-    cell_styles(slot_footer_cell,  f'{data["Hora início"]} às {data["Hora fim"]}', FONT_BASE7, alignment=BOTTOM_ALIGNMENT)
+    cell_styles(slot_footer_cell,  f'{data["hora_inicio"]} às {data["hora_fim"]}', FONT_BASE7, alignment=BOTTOM_ALIGNMENT)
     
     apply_border(sheet, f'{start_col}{start_row}:{end_col}{end_row}', color)
 
 def full_day_slot(sheet:Worksheet, data:dict, timetable_start_col: int, timetable_start_row: int) -> None:
-    start_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + 2)
-    end_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + 4)
-    start_row = time_to_integer(data['Hora início']) + timetable_start_row + 6
-    end_row = time_to_integer(data['Hora fim']) + timetable_start_row + 5
+    start_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + 2)
+    end_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + 4)
+    start_row = time_to_integer(data['hora_inicio']) + timetable_start_row + 6
+    end_row = time_to_integer(data['hora_fim']) + timetable_start_row + 5
     
     color = ORANGE_FILL
     
@@ -109,7 +124,7 @@ def full_day_slot(sheet:Worksheet, data:dict, timetable_start_col: int, timetabl
             in_class = True
             cell = merge_cells(sheet, f'{start_col}{first_row}:{end_col}{current_row-1}')
             cell.fill = color
-            cell_styles(cell, data['Disciplina'], FONT_BOLD_GRAY7, color, CENTER_ALIGNMENT)
+            cell_styles(cell, data['nome_disciplina'], FONT_BOLD_GRAY7, color, CENTER_ALIGNMENT)
         elif (not cell_in_conflit) and in_class:
             in_class = False
             first_row = current_row
@@ -117,28 +132,30 @@ def full_day_slot(sheet:Worksheet, data:dict, timetable_start_col: int, timetabl
     if (not in_class):
         cell = merge_cells(sheet, f'{start_col}{first_row}:{end_col}{end_row}')
         cell.fill = color
-        cell_styles(cell, data['Disciplina'], FONT_BOLD_GRAY7, color, CENTER_ALIGNMENT)
+        cell_styles(cell, data['nome_disciplina'], FONT_BOLD_GRAY7, color, CENTER_ALIGNMENT)
 
 def special_slot(sheet:Worksheet, data:dict, timetable_start_col: int, timetable_start_row: int) -> None:
-    start_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + 2)
-    end_col = col_letter(timetable_start_col + DAY_PARSER[data['Dia da Semana']]*4 + 4)
-    start_row = time_to_integer(data['Hora início']) + timetable_start_row + 6
-    end_row = time_to_integer(data['Hora fim']) + timetable_start_row + 5
+    start_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + 2)
+    end_col = col_letter(timetable_start_col + DAY_PARSER[data['dia_semana']]*4 + 4)
+    start_row = time_to_integer(data['hora_inicio']) + timetable_start_row + 6
+    end_row = time_to_integer(data['hora_fim']) + timetable_start_row + 5
     
     if not conflit(sheet, col_number(start_col), start_row, col_number(end_col), end_row):
-        error(f'Não foi possível adicionar a {data['Tipo']} da disciplina {data["Disciplina"]} da turma {data['Curso']}-{get_digit(data['Série'])}{data['Turma Pref']} no horário {data["Hora início"]} às {data["Hora fim"]} da {data['Dia da Semana']} devido a um conflito com outro disciplina já adicionada')
+        error(f'Não foi possível adicionar a {data['tipo_atividade']} da disciplina {data["nome_disciplina"]} da turma {data['curso']}-{get_digit(data['serie'])}{data['turma']} no horário {data["hora_inicio"]} às {data["hora_fim"]} da {data['dia_semana']} devido a um conflito com outro disciplina já adicionada')
         return
 
     color = LIGHT_ORANGE_FILL
     
     cell_title = merge_cells(sheet, f'{start_col}{start_row}:{end_col}{end_row-1}')
-    cell_styles(cell_title, data['Disciplina'], FONT_BOLD_GRAY7, color, CENTER_ALIGNMENT)
+    cell_styles(cell_title, data['nome_disciplina'], FONT_BOLD_GRAY7, color, CENTER_ALIGNMENT)
     cell_time = merge_cells(sheet, f'{start_col}{end_row}:{end_col}{end_row}')
-    cell_styles(cell_time, f'{data["Hora início"]} às {data["Hora fim"]}', FONT_BOLD_RED7, color, CENTER_ALIGNMENT)
+    cell_styles(cell_time, f'{data["hora_inicio"]} às {data["hora_fim"]}', FONT_BOLD_RED7, color, CENTER_ALIGNMENT)
     
 def construct_calendar() -> None:
     timetable_height = time_to_integer(FIXED_END_HOURS[-1]) + 6
     timetable_width = 22
+    
+    DATA = load_space_data()
     
     for idx_course, course_timetable in enumerate(COURSE_TIMETABLES):
         wb = openpyxl.Workbook()
@@ -154,10 +171,10 @@ def construct_calendar() -> None:
             wb.create_sheet(sheet_name)
             sheet = wb[sheet_name]
             
-            data_course = DATA[DATA['Curso'].isin(COURSE_FILTERS[idx_course])]
-            series = sorted(data_course['Série'].unique(), key=lambda x: str(x))
+            data_course = DATA[DATA['curso'].isin(COURSE_FILTERS[idx_course])]
+            series = sorted(data_course['serie'].unique(), key=lambda x: str(x))
             n_series = len(series)
-            n_turmas = data_course['Turma Pref'].nunique()
+            n_turmas = data_course['turma'].nunique()
             
             for row in sheet.iter_rows(min_row=1, max_row=timetable_height*n_turmas+2, min_col=1, max_col=timetable_width*n_series):
                 for cell in row:
@@ -169,11 +186,11 @@ def construct_calendar() -> None:
                 timetable_start_col = timetable_width*idx_serie + 1
                 timetable_end_col = timetable_width*idx_serie + 21
                 
-                data_serie = data_course[(DATA['Série'] == serie)].sort_values(['Curso', 'Turma Pref'])   
+                data_serie = data_course[(DATA['serie'] == serie)].sort_values(['curso', 'turma'])   
                 
-                turmas = data_serie.groupby(['Curso', 'Turma Pref'])['Disciplina'].nunique().reset_index().rename(columns={'Disciplina': 'Quant. Disciplinas'})
-                turmas['Disciplinas'] = data_serie.groupby(['Curso', 'Turma Pref'])['Disciplina'].apply(lambda x: ', '.join(set(x.dropna()))).reset_index()['Disciplina']
-                turmas = turmas[(turmas['Quant. Disciplinas'] > 1) | (~turmas['Disciplinas'].isin(DISCIPLINES_GRUPED_CLASS))]
+                turmas = data_serie.groupby(['curso', 'turma'])['nome_disciplina'].nunique().reset_index().rename(columns={'nome_disciplina': 'Quant. nome_disciplinas'})
+                turmas['nome_disciplinas'] = data_serie.groupby(['curso', 'turma'])['nome_disciplina'].apply(lambda x: ', '.join(set(x.dropna()))).reset_index()['nome_disciplina']
+                turmas = turmas[(turmas['Quant. nome_disciplinas'] > 1) | (~turmas['nome_disciplinas'].isin(CONFIGS['DISCIPLINES_GRUPED_CLASS']))]
                 
                 if turmas.shape[0] == 0:
                     continue
@@ -183,30 +200,28 @@ def construct_calendar() -> None:
                 sheet.row_dimensions[1].height = TITLE_HEIGHT
                 apply_border(sheet, title_range, DEFAULT_BORDER)
             
-                LOGO = Image('insper.png')
+                LOGO = Image(path.join(ABS_PATH, 'insper.png'))
                 LOGO.width = 3.5 * CM2PIXEL  # Largura em pixels
                 LOGO.height = 1.5 * CM2PIXEL  # Altura em pixels
                 sheet.add_image(LOGO, title_range.split(':')[0])
                 
                 for idx_turma, turma_row in turmas.iterrows():
-                    data_turma = data_serie[(data_serie['Turma Pref'] == turma_row['Turma Pref']) & (data_serie['Curso'] == turma_row['Curso'])]\
-                        .sort_values(['Disciplina'])\
+                    data_turma = data_serie[(data_serie['turma'] == turma_row['turma']) & (data_serie['curso'] == turma_row['curso'])]\
+                        .sort_values(['nome_disciplina'])\
                         .copy()
                         
-                    data_turma['Cor'] = pd.factorize(data_turma['Disciplina'])[0]
-                    data_turma['Cor'] = data_turma['Cor'].apply(lambda x: x if x < 6 else 5)
-                    reserved_day_disciplines = data_turma[data_turma['Tipo'] == 'DIA RESERVADO']['Disciplina'].unique()
-                    data_turma.loc[data_turma['Disciplina'].isin(reserved_day_disciplines), 'Cor'] = 6
-                    if 'DEVELOPER LIFE' in data_turma['Disciplina'].values:
-                        data_turma.loc[data_turma['Disciplina'].str.contains('DEVELOPER LIFE'), 'Cor'] = data_turma[data_turma['Disciplina'] == 'DEVELOPER LIFE']['Cor'].unique()[0]
+                    reserved_day_disciplines = data_turma[data_turma['tipo_atividade'] == 'DIA RESERVADO']['nome_disciplina'].unique()
+                    data_turma.loc[data_turma['nome_disciplina'].isin(reserved_day_disciplines), 'cor'] = 6
+                    if 'DEVELOPER LIFE' in data_turma['nome_disciplina'].values:
+                        data_turma.loc[data_turma['nome_disciplina'].str.contains('DEVELOPER LIFE'), 'cor'] = data_turma[data_turma['nome_disciplina'] == 'DEVELOPER LIFE']['cor'].unique()[0]
                     
-                    course_title = TITLE_COURSE[turmas.loc[idx_turma, 'Curso']]
+                    course_title = TITLE_COURSE[turmas.loc[idx_turma, 'curso']]
                     
                     timetable_start_row = timetable_height*idx_turma + 1 
                     
                     subtitle_range = f'{col_letter(timetable_start_col)}{timetable_start_row+2}:{col_letter(timetable_end_col)}{timetable_start_row+2}'
                     cell = merge_cells(sheet, subtitle_range)
-                    cell_styles(cell, f'{serie_number}º Período {"-" if course_title == "" else "- "+course_title+" -"} Turma {turma_row['Turma Pref'].replace('Z@', '')}', FONT_BOLD_BLACK8)
+                    cell_styles(cell, f'{serie_number}º Período {"-" if course_title == "" else "- "+course_title+" -"} Turma {turma_row['turma'].replace('Z@', '')}', FONT_BOLD_BLACK8)
                     sheet.row_dimensions[3].height = DATA_HEIGHT
                     sheet.row_dimensions[4].height = SPACING_HEIGHT
                     apply_border(sheet, subtitle_range, RED_BORDER)
@@ -239,26 +254,33 @@ def construct_calendar() -> None:
                         
                     sheet.column_dimensions[col_letter(timetable_end_col+1)].width = DIVISION_WIDTH
                     
-                    for day in DAYS:
-                        data_day = data_turma[data_turma['Dia da Semana'] == f'{day}-FEIRA']
-                        data_day_in_class = data_day[data_day['Tipo'] != 'DIA RESERVADO']
-                        for i, data_slot in data_day_in_class.iterrows():
-                            if data_slot['Posição'] < 0:
-                                continue
-                            if data_slot['Disciplina'] in SPECIAL_CLASSES:
-                                special_slot(sheet, data_slot.to_dict(), timetable_start_col, timetable_start_row)
-                            elif (data_slot['Tipo'] == 'ATENDIMENTO / PLANTÃO') and with_attendance:
-                                slot_attendance(sheet, data_slot.to_dict(), timetable_start_col, timetable_start_row)
-                            elif (data_slot['Tipo'] in ['MONITORIA', 'MONITORIA NINJA']) and with_attendance:
-                                slot_monitor(sheet, data_slot.to_dict(), timetable_start_col, timetable_start_row)
-                            elif (data_slot['Tipo'] in ['AULA', 'ATIVIDADE EXTRA CURRICULAR']):
-                                slot_class(sheet, data_slot.to_dict(), timetable_start_col, timetable_start_row, with_professors) 
-                                                    
-                        data_day_reserved = data_day[data_day['Tipo'] == 'DIA RESERVADO']
-                        if data_day_reserved.shape[0] > 0:
-                            full_day_slot(sheet, data_day_reserved.iloc[0].to_dict(), timetable_start_col, timetable_start_row)
-                            if data_day_reserved.shape[0] > 1:
-                                warning(f'Dia reservado com mais de uma vez na {day}-FEIRA para turma {turma_row['Curso']}-{serie_number}{turma_row["Turma Pref"]}')
+                    try:
+                        for day in DAYS:
+                            data_day = data_turma[data_turma['dia_semana'] == f'{day}-FEIRA']
+                            data_day_in_class = data_day[data_day['tipo_atividade'] != 'DIA RESERVADO']
+                            for i, data_slot in data_day_in_class.iterrows():
+                                if data_slot['posicao'] < 0:
+                                    continue
+                                if data_slot['nome_disciplina'] in CONFIGS['SPECIAL_CLASSES']:
+                                    special_slot(sheet, data_slot.to_dict(), timetable_start_col, timetable_start_row, )
+                                    
+                                elif (data_slot['tipo_atividade'] == 'ATENDIMENTO / PLANTÃO') and with_attendance:
+                                    slot_attendance(sheet, data_slot.to_dict(), timetable_start_col, timetable_start_row)
+                                    
+                                elif (data_slot['tipo_atividade'] in ['MONITORIA', 'MONITORIA NINJA']) and with_attendance:
+                                    slot_monitor(sheet, data_slot.to_dict(), timetable_start_col, timetable_start_row)
+                                    
+                                elif (data_slot['tipo_atividade'] in ['AULA', 'ATIVIDADE EXTRA CURRICULAR']):
+                                    slot_class(sheet, data_slot.to_dict(), timetable_start_col, timetable_start_row, with_professors, with_attendance) 
+                                                        
+                            data_day_reserved = data_day[data_day['tipo_atividade'] == 'DIA RESERVADO']
+                            if data_day_reserved.shape[0] > 0:
+                                full_day_slot(sheet, data_day_reserved.iloc[0].to_dict(), timetable_start_col, timetable_start_row)
+                                if data_day_reserved.shape[0] > 1:
+                                    warning(f'Dia reservado com mais de uma vez na {day}-FEIRA para turma {turma_row["curso"]}-{serie_number}{turma_row["turma"]}')
+                    except Exception as e:
+                        error(f'Erro ao adicionar aulas na {day}-FEIRA para turma {turma_row["curso"]}-{serie_number}{turma_row["turma"]}.\nErro: {e}')
+                        error(f'Dados:\n{data_slot}')
                         
                 footer_range = f'{col_letter(timetable_start_col)}{timetable_start_row+timetable_height+1}:{col_letter(timetable_end_col)}{timetable_start_row+timetable_height+1}'
                 cell = merge_cells(sheet, footer_range)
@@ -278,5 +300,5 @@ def construct_calendar() -> None:
 
 if __name__ == '__main__':
     construct_calendar()
-    success('Automação finalizada! Pressione qualquer tecla para sair')
+    success('Automação finalizada! Pressione [ENTER] para sair')
     input()
