@@ -144,12 +144,10 @@ def special_slot(sheet:Worksheet, data:dict, timetable_start_col: int, timetable
         error(f'Não foi possível adicionar a {data['tipo_atividade']} da disciplina {data["nome_disciplina"]} da turma {data['curso']}-{get_digit(data['serie'])}{data['turma']} no horário {data["hora_inicio"]} às {data["hora_fim"]} da {data['dia_semana']} devido a um conflito com outro disciplina já adicionada')
         return
 
-    color = LIGHT_ORANGE_FILL
-    
     cell_title = merge_cells(sheet, f'{start_col}{start_row}:{end_col}{end_row-1}')
-    cell_styles(cell_title, data['nome_disciplina'], FONT_BOLD_GRAY7, color, CENTER_ALIGNMENT)
+    cell_styles(cell_title, data['nome_disciplina'], FONT_BOLD_GRAY7, LIGHT_ORANGE_FILL, CENTER_ALIGNMENT)
     cell_time = merge_cells(sheet, f'{start_col}{end_row}:{end_col}{end_row}')
-    cell_styles(cell_time, f'{data["hora_inicio"]} às {data["hora_fim"]}', FONT_BOLD_RED7, color, CENTER_ALIGNMENT)
+    cell_styles(cell_time, f'{data["hora_inicio"]} às {data["hora_fim"]}', FONT_BOLD_RED7, LIGHT_ORANGE_FILL, CENTER_ALIGNMENT)
     
 def construct_calendar() -> None:
     timetable_height = time_to_integer(FIXED_END_HOURS[-1]) + 6

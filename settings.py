@@ -73,7 +73,7 @@ COURSE_TIMETABLES = [
     'Direito',
 ]
 COURSE_FILTERS = [
-    ['ENG', 'COMP', 'MEC/MECAT', 'MEC', 'MECAT'],
+    ['ENG', 'COMP', 'MECA/MECAT', 'MECA', 'MECAT'],
     ['ADM/ECO', 'ADM', 'ECO'],
     ['CIECOMP'],
     ['DIR'],
@@ -81,8 +81,8 @@ COURSE_FILTERS = [
 TITLE_COURSE = {
     'ENG': '',
     'COMP': 'COMP',
-    'MEC/MECAT': 'MEC/MECAT',
-    'MEC': 'MEC',
+    'MECA/MECAT': 'MECA/MECAT',
+    'MECA': 'MECA',
     'MECAT': 'MECAT',
     'ADM/ECO': 'ADM/ECO',
     'ADM': 'Administração',
