@@ -87,6 +87,7 @@ def remove_by_filters(data:pd.DataFrame) -> pd.DataFrame:
     for i, row in data_filters_raw.iterrows():
         if row[columns_to_check].isnull().any():
             empty_columns = row[columns_to_check].index[row[columns_to_check].isnull()].tolist()
+            warning(f'Linha [{i+3}] da aba [Remoção Horários Space] será ignorada devido a coluna [{empty_columns}] estar vazia')
     data_filters = data_filters_raw.dropna(subset=columns_to_check).fillna('')
     data_filters = data_filters.map(cleaner)
     data_filters.rename(columns={
@@ -97,29 +98,31 @@ def remove_by_filters(data:pd.DataFrame) -> pd.DataFrame:
         'Tipo Atividade': 'tipo_atividade',
         'Dia da Semana': 'dia_semana',
     }, inplace=True)
-
-    data_filters['filtro'] = data_filters.apply(lambda row: f"{row['curso']}_{row['serie']}{row['turma']}_[{row['nome_disciplina']}]{'' if row['tipo_atividade'] == '' else '_'+row['tipo_atividade']}{'' if row['dia_semana'] == '' else '_'+row['dia_semana']}", axis=1)
-    filters = data_filters['filtro'].unique().tolist()
     
-    data_filtering = data.copy()
-    data_filtering['filtro_base'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_[{row['nome_disciplina']}]", axis=1)
-    data_filtering['filtro_tipo'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_[{row['nome_disciplina']}]_{row['tipo_atividade']}", axis=1)
-    data_filtering['filtro_dia'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_[{row['nome_disciplina']}]_{row['dia_semana']}", axis=1)
-    data_filtering['filtro_completo'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_[{row['nome_disciplina']}]_{row['tipo_atividade']}_{row['dia_semana']}", axis=1)
-    
-    removed = data_filtering[
-        (data_filtering['filtro_base'].isin(filters))
-        | (data_filtering['filtro_tipo'].isin(filters))
-        | (data_filtering['filtro_dia'].isin(filters))
-        | (data_filtering['filtro_completo'].isin(filters))
-    ]
-    
-    for i, row in removed.iterrows():
-        warning(f'a {row["tipo_atividade"]} da turma {row["cod_turma"]}, de {row["nome_disciplina"]} que ocorre as {row["dia_semana"]} foi removida com sucesso')
-    
-    data_filtering = data_filtering.drop(removed.index)
-    success(f'Horários removidos com sucesso!')
-    return data_filtering
+    if not data_filters.empty:
+        data_filters['filtro'] = data_filters.apply(lambda row: f"{row['curso']}_{row['serie']}{row['turma']}_[{row['nome_disciplina']}]{'' if row['tipo_atividade'] == '' else '_'+row['tipo_atividade']}{'' if row['dia_semana'] == '' else '_'+row['dia_semana']}", axis=1)
+        filters = data_filters['filtro'].unique().tolist()
+        
+        data_filtering = data.copy()
+        data_filtering['filtro_base'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_[{row['nome_disciplina']}]", axis=1)
+        data_filtering['filtro_tipo'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_[{row['nome_disciplina']}]_{row['tipo_atividade']}", axis=1)
+        data_filtering['filtro_dia'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_[{row['nome_disciplina']}]_{row['dia_semana']}", axis=1)
+        data_filtering['filtro_completo'] = data_filtering.apply(lambda row: f"{row['cod_turma']}_[{row['nome_disciplina']}]_{row['tipo_atividade']}_{row['dia_semana']}", axis=1)
+        
+        removed = data_filtering[
+            (data_filtering['filtro_base'].isin(filters))
+            | (data_filtering['filtro_tipo'].isin(filters))
+            | (data_filtering['filtro_dia'].isin(filters))
+            | (data_filtering['filtro_completo'].isin(filters))
+        ]
+        
+        for i, row in removed.iterrows():
+            warning(f'a {row["tipo_atividade"]} da turma {row["cod_turma"]}, de {row["nome_disciplina"]} que ocorre as {row["dia_semana"]} foi removida com sucesso')
+        
+        data_filtering = data_filtering.drop(removed.index)
+        success(f'Horários removidos com sucesso!')
+        return data_filtering
+    return data
     
     
     

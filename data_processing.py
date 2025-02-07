@@ -16,110 +16,110 @@ from utils import info, success, cleaner
 from settings import CONFIGS, TYPE_PRIORITY, CURRENT_DATE, CURRENT_YEAR, CURRENT_SEMESTER
 
 # Criando a string de conexão manualmente
-# params = urllib.parse.quote_plus(
-#     f"DRIVER={getenv('driver')};"
-#     f"SERVER={getenv('server')};"
-#     f"DATABASE={getenv('database')};"
-#     f"UID={getenv('username')};"
-#     f"PWD={getenv('password')};"
-# )
-# if 'None' in params:
-#     raise ValueError('As Variáveis de Ambiente não foram configuradas corretamente!')
+params = urllib.parse.quote_plus(
+    f"DRIVER={getenv('driver')};"
+    f"SERVER={getenv('server')};"
+    f"DATABASE={getenv('database')};"
+    f"UID={getenv('username')};"
+    f"PWD={getenv('password')};"
+)
+if 'None' in params:
+    raise ValueError('As Variáveis de Ambiente não foram configuradas corretamente!')
 
-# connection_url = f"mssql+pyodbc:///?odbc_connect={params}"
+connection_url = f"mssql+pyodbc:///?odbc_connect={params}"
 
 # # Cria a engine do SQLAlchemy
-# engine:Engine = create_engine(connection_url)
+engine:Engine = create_engine(connection_url)
 
-# query = f"""--sql
-# WITH temp_tratamento_1 AS (
-#     SELECT 
-#         *,
-#         REPLACE(TRANSLATE(RIGHT(turma_pref, LEN(turma_pref) - CHARINDEX('_', turma_pref)), '0123456789', '          '), ' ', '') AS turma_tratada, -- tratamento inicial da turma
-#         CONCAT(CAST(ano AS NVARCHAR), '.', CAST(semestre-60 AS NVARCHAR)) AS periodo, -- coluna de periodo para facilitar identificação
-#         CASE -- Correção do tempo pós-aula colocado automaticamente pela configuração antiga do Space
-#             WHEN Descricao != 'Aula' THEN HORA_INICIO
-#             WHEN HORA_INICIO = '15:30' AND HORA_FIM = '17:45' THEN '15:45'
-#             WHEN HORA_INICIO = '13:15' AND HORA_FIM = '15:30' THEN '13:30'
-#             WHEN HORA_INICIO = '09:30' AND HORA_FIM = '11:45' THEN '09:45'
-#             WHEN HORA_INICIO = '07:15' AND HORA_FIM = '09:30' THEN '07:30'
-#             ELSE HORA_INICIO 
-#         END AS hora_inicio_corrigida,
-#         CASE -- Correção do tempo pré-aula colocado automaticamente pela configuração antiga do Space
-#             WHEN Descricao != 'Aula' THEN HORA_FIM
-#             WHEN HORA_INICIO = '15:45' AND HORA_FIM = '18:00' THEN '17:45'
-#             WHEN HORA_INICIO = '13:30' AND HORA_FIM = '15:45' THEN '15:30'
-#             WHEN HORA_INICIO = '09:45' AND HORA_FIM = '12:00' THEN '11:45'
-#             WHEN HORA_INICIO = '07:30' AND HORA_FIM = '09:45' THEN '09:30'
-#             ELSE HORA_FIM 
-#         END AS hora_fim_corrigida,
-#         CASE
-#             WHEN curso IN ('GRADM', 'GRECO') AND serie <= 3 THEN 'ADM/ECO' -- ciclo em conjunto de ADM e ECO
-#             WHEN curso IN ('GRENGCOMP', 'GRENGMECA', 'GRENGMECAT') AND serie <= 2 THEN 'ENG' -- ciclo em conjunto de ENG
-#             WHEN curso IN ('GRENGMECA', 'GRENGMECAT') AND serie <= 4 THEN 'MECA/MECAT' -- ciclo em conjunto de MECA e MECAT
-#             ELSE REPLACE(REPLACE(curso, 'GRENG', ''), 'GR', '') --removendo GR e GRENG para facilitar a leitura
-#         END AS curso_tratado,
-#         CASE 
-#             WHEN turma LIKE '%ELET[_]%' OR turma LIKE '%[_]OPT%' OR turma LIKE '%ELETFERIAS%' THEN 'ELETIVA' -- identificando disciplinas eletivas
-#             WHEN turma LIKE 'AC[_]%' THEN 'ATIVIDADE COMPLEMENTAR' -- identificando atividades complementares
-#             WHEN turma LIKE '%[_]ANPEC%' THEN 'ANPEC' -- identificando disciplinas da ANPEC
-#             WHEN turma LIKE '%GLOACA%' THEN 'GLOBAL ACADEMY' -- identificando disciplinas da GLOBAL ACADEMY
-#             WHEN turma LIKE '%DPFERIAS%' OR turma LIKE '%DPFÉRIAS%' THEN 'DPFERIAS' -- identificando DPs de férias
-#             ELSE 'OBRIGATORIA' -- definindo demais disciplinas como obrigatórias
-#         END AS tipo_disciplina
-#     FROM tb_dta_reservas_academicas 
-#     WHERE 
-#         familia_curso = 'GRADUACAO' -- filtrando apenas pela graduação (esses tratamentos são específicos para a graduação)
-#         AND ano = {CURRENT_YEAR} -- filtrando apenas pelo ano atual para acelerar a consulta
-# ),
-# temp_tratamento_2 AS (
-#     SELECT
-#         *,
-#         CASE
-#             WHEN turma_tratada IN ('OPT[_]A', 'OPTATIVA', 'ELET[_]A') THEN 'ELET_A' -- turma eleita A
-#             WHEN (turma_tratada = 'A' AND tipo_disciplina = 'ELETIVA') THEN 'ELET_A' -- turma eleita A
-#             WHEN (turma_tratada = 'B' AND tipo_disciplina = 'ELETIVA') THEN 'ELET_B' -- turma eleita B
-#             WHEN turma LIKE 'EXAME[_]QUALI%' THEN 'A' -- padronizando turma do exame de qualificação de ADM e ECO
-#             WHEN turma LIKE 'AC[_]%' THEN 'AC_A' -- distinção da turma das atividades complementares
-#             WHEN turma_tratada LIKE 'ECO%' THEN RIGHT(turma_tratada, 1) -- padronizando turma de ECO
-#             WHEN turma_tratada = 'DPFÉRIAS' THEN 'DPFERIAS' -- padronizando turma de DP de férias
-#             ELSE turma_tratada
-#         END AS turma_real
-#     FROM temp_tratamento_1
-# ),
-# temp_duplicatas AS (
-#     SELECT 
-#         *, 
-#         ROW_NUMBER() OVER (PARTITION BY data_aula, HORA_INICIO, HORA_FIM, curso_tratado, disciplina, serie, turma_real, sala, Docente ORDER BY data_aula) AS n_duplicacao
-#         -- identificando duplicatas de aulas (aula de ciclo em conjunto de ADM/ECO, ENG, MECA/MECAT geram duplicatas, uam para cada curso)
-#     FROM temp_tratamento_2
-# ),
-# tb_space AS (
-#     SELECT 
-#         -- selecionando apenas as colunas necessárias para a view e renomeando-as para facilitar identificação
-#         data_aula, periodo,         
-#         DIA_SEMANA AS dia_semana,
-#         data_aula + CAST(PARSE(hora_inicio_corrigida AS TIME) AS DATETIME) AS hora_inicio, -- convertendo a hora de início para datetime para facilitar a comparações    
-#         data_aula + CAST(PARSE(hora_fim_corrigida AS TIME) AS DATETIME) AS hora_fim, -- convertendo a hora de término para datetime para facilitar a comparações    
-#         Descricao AS tipo_atividade, 
-#         disciplina AS cod_disciplina,
-#         TRIM(nome_disciplina) AS nome_disciplina,
-#         tipo_disciplina,
-#         curso_tratado AS curso,
-#         turma AS cod_turma_disciplina,
-#         CONCAT(curso_tratado, '_', serie, turma_real) AS cod_turma,
-#         turma_real AS turma,
-#         serie,
-#         TRIM(Docente) AS docentes,
-#         sala,
-#         descricao_lyceum AS observacao,
-#         DT_ATUALIZACAO AS dt_atualizacao
-#     FROM temp_duplicatas
-#     WHERE n_duplicacao = 1 -- removendo duplicatas
-# )
-# SELECT * FROM tb_space
-# ORDER BY data_aula, hora_inicio, hora_fim, curso, serie, turma;
-# """
+query = f"""--sql
+WITH temp_tratamento_1 AS (
+    SELECT 
+        *,
+        REPLACE(TRANSLATE(RIGHT(turma_pref, LEN(turma_pref) - CHARINDEX('_', turma_pref)), '0123456789', '          '), ' ', '') AS turma_tratada, -- tratamento inicial da turma
+        CONCAT(CAST(ano AS NVARCHAR), '.', CAST(semestre-60 AS NVARCHAR)) AS periodo, -- coluna de periodo para facilitar identificação
+        CASE -- Correção do tempo pós-aula colocado automaticamente pela configuração antiga do Space
+            WHEN Descricao != 'Aula' THEN HORA_INICIO
+            WHEN HORA_INICIO = '15:30' AND HORA_FIM = '17:45' THEN '15:45'
+            WHEN HORA_INICIO = '13:15' AND HORA_FIM = '15:30' THEN '13:30'
+            WHEN HORA_INICIO = '09:30' AND HORA_FIM = '11:45' THEN '09:45'
+            WHEN HORA_INICIO = '07:15' AND HORA_FIM = '09:30' THEN '07:30'
+            ELSE HORA_INICIO 
+        END AS hora_inicio_corrigida,
+        CASE -- Correção do tempo pré-aula colocado automaticamente pela configuração antiga do Space
+            WHEN Descricao != 'Aula' THEN HORA_FIM
+            WHEN HORA_INICIO = '15:45' AND HORA_FIM = '18:00' THEN '17:45'
+            WHEN HORA_INICIO = '13:30' AND HORA_FIM = '15:45' THEN '15:30'
+            WHEN HORA_INICIO = '09:45' AND HORA_FIM = '12:00' THEN '11:45'
+            WHEN HORA_INICIO = '07:30' AND HORA_FIM = '09:45' THEN '09:30'
+            ELSE HORA_FIM 
+        END AS hora_fim_corrigida,
+        CASE
+            WHEN curso IN ('GRADM', 'GRECO') AND serie <= 3 THEN 'ADM/ECO' -- ciclo em conjunto de ADM e ECO
+            WHEN curso IN ('GRENGCOMP', 'GRENGMECA', 'GRENGMECAT') AND serie <= 2 THEN 'ENG' -- ciclo em conjunto de ENG
+            WHEN curso IN ('GRENGMECA', 'GRENGMECAT') AND serie <= 4 THEN 'MECA/MECAT' -- ciclo em conjunto de MECA e MECAT
+            ELSE REPLACE(REPLACE(curso, 'GRENG', ''), 'GR', '') --removendo GR e GRENG para facilitar a leitura
+        END AS curso_tratado,
+        CASE 
+            WHEN turma LIKE '%ELET[_]%' OR turma LIKE '%[_]OPT%' OR turma LIKE '%ELETFERIAS%' THEN 'ELETIVA' -- identificando disciplinas eletivas
+            WHEN turma LIKE 'AC[_]%' THEN 'ATIVIDADE COMPLEMENTAR' -- identificando atividades complementares
+            WHEN turma LIKE '%[_]ANPEC%' THEN 'ANPEC' -- identificando disciplinas da ANPEC
+            WHEN turma LIKE '%GLOACA%' THEN 'GLOBAL ACADEMY' -- identificando disciplinas da GLOBAL ACADEMY
+            WHEN turma LIKE '%DPFERIAS%' OR turma LIKE '%DPFÉRIAS%' THEN 'DPFERIAS' -- identificando DPs de férias
+            ELSE 'OBRIGATORIA' -- definindo demais disciplinas como obrigatórias
+        END AS tipo_disciplina
+    FROM tb_dta_reservas_academicas 
+    WHERE 
+        familia_curso = 'GRADUACAO' -- filtrando apenas pela graduação (esses tratamentos são específicos para a graduação)
+        AND ano = {CURRENT_YEAR} -- filtrando apenas pelo ano atual para acelerar a consulta
+),
+temp_tratamento_2 AS (
+    SELECT
+        *,
+        CASE
+            WHEN turma_tratada IN ('OPT[_]A', 'OPTATIVA', 'ELET[_]A') THEN 'ELET_A' -- turma eleita A
+            WHEN (turma_tratada = 'A' AND tipo_disciplina = 'ELETIVA') THEN 'ELET_A' -- turma eleita A
+            WHEN (turma_tratada = 'B' AND tipo_disciplina = 'ELETIVA') THEN 'ELET_B' -- turma eleita B
+            WHEN turma LIKE 'EXAME[_]QUALI%' THEN 'A' -- padronizando turma do exame de qualificação de ADM e ECO
+            WHEN turma LIKE 'AC[_]%' THEN 'AC_A' -- distinção da turma das atividades complementares
+            WHEN turma_tratada LIKE 'ECO%' THEN RIGHT(turma_tratada, 1) -- padronizando turma de ECO
+            WHEN turma_tratada = 'DPFÉRIAS' THEN 'DPFERIAS' -- padronizando turma de DP de férias
+            ELSE turma_tratada
+        END AS turma_real
+    FROM temp_tratamento_1
+),
+temp_duplicatas AS (
+    SELECT 
+        *, 
+        ROW_NUMBER() OVER (PARTITION BY data_aula, HORA_INICIO, HORA_FIM, curso_tratado, disciplina, serie, turma_real, sala, Docente ORDER BY data_aula) AS n_duplicacao
+        -- identificando duplicatas de aulas (aula de ciclo em conjunto de ADM/ECO, ENG, MECA/MECAT geram duplicatas, uam para cada curso)
+    FROM temp_tratamento_2
+),
+tb_space AS (
+    SELECT 
+        -- selecionando apenas as colunas necessárias para a view e renomeando-as para facilitar identificação
+        data_aula, periodo,         
+        DIA_SEMANA AS dia_semana,
+        data_aula + CAST(PARSE(hora_inicio_corrigida AS TIME) AS DATETIME) AS hora_inicio, -- convertendo a hora de início para datetime para facilitar a comparações    
+        data_aula + CAST(PARSE(hora_fim_corrigida AS TIME) AS DATETIME) AS hora_fim, -- convertendo a hora de término para datetime para facilitar a comparações    
+        Descricao AS tipo_atividade, 
+        disciplina AS cod_disciplina,
+        TRIM(nome_disciplina) AS nome_disciplina,
+        tipo_disciplina,
+        curso_tratado AS curso,
+        turma AS cod_turma_disciplina,
+        CONCAT(curso_tratado, '_', serie, turma_real) AS cod_turma,
+        turma_real AS turma,
+        serie,
+        TRIM(Docente) AS docentes,
+        sala,
+        descricao_lyceum AS observacao,
+        DT_ATUALIZACAO AS dt_atualizacao
+    FROM temp_duplicatas
+    WHERE n_duplicacao = 1 -- removendo duplicatas
+)
+SELECT * FROM tb_space
+ORDER BY data_aula, hora_inicio, hora_fim, curso, serie, turma;
+"""
 
 def load_space_data() -> pd.DataFrame:
 
@@ -128,14 +128,7 @@ def load_space_data() -> pd.DataFrame:
 
     info('Extraindo dados do Banco de Dados')
     
-    # df_space = pd.read_sql(query, engine)
-    df_space = pd.read_csv(path.join(ABS_PATH,'space.csv'))
-    df_space['data_aula'] = pd.to_datetime(df_space['data_aula'])
-    df_space['periodo'] = df_space['periodo'].astype('str')
-    df_space['hora_inicio'] = pd.to_datetime(df_space['hora_inicio'])
-    df_space['hora_fim'] = pd.to_datetime(df_space['hora_fim'])
-    df_space['serie'] = df_space['serie'].astype('int64')
-    df_space['dt_atualizacao'] = pd.to_datetime(df_space['dt_atualizacao'], format='mixed')
+    df_space = pd.read_sql(query, engine)
     
     success('Dados carregados!')
     info('Processando dados')
