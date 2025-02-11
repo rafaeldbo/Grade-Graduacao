@@ -1,22 +1,18 @@
 import numpy as np
 import pandas as pd
 
-import warnings
-from dotenv import load_dotenv
 from os import getenv, path
 
-load_dotenv(override=True)
-ABS_PATH = path.abspath(path.dirname(__file__))
-warnings.filterwarnings('ignore')
+from .utils import success, warning, info, cleaner
 
-from utils import success, warning, info, cleaner
-
-filename = getenv('config_file', 'Config_Grade.xlsx')
-config_filepath = path.join(ABS_PATH, filename)
-if not path.isfile(config_filepath):
-    raise FileNotFoundError(f'Arquivo de configuração [{filename}] não encontrado no diretório atual!')    
-
-def load_manual_data() -> pd.DataFrame:
+FILENAME = getenv('config_file', 'Config_Grade.xlsx')
+   
+def load_manual_data(abs_path:str) -> pd.DataFrame:
+    
+    config_filepath = path.join(abs_path, FILENAME)
+    if not path.isfile(config_filepath):
+        raise FileNotFoundError(f'Arquivo de configuração [{FILENAME}] não encontrado no diretório atual!') 
+    
     info('Carregando dados adicionados manualmente')
     data_manual_raw = pd.read_excel(config_filepath, 'Adição Horários Manuais', header=1)
     columns_to_check = ['Curso', 'Série', 'Turma', 'Nome Disciplina', 'Tipo Atividade', 'Dia da Semana', 'Hora início', 'Hora fim']
@@ -49,7 +45,12 @@ def load_manual_data() -> pd.DataFrame:
     success(f'Dados adicionados manualmente carregados com sucesso!')
     return data_manual
 
-def load_configs() -> dict:
+def load_configs(abs_path:str) -> dict:
+    
+    config_filepath = path.join(abs_path, FILENAME)
+    if not path.isfile(config_filepath):
+        raise FileNotFoundError(f'Arquivo de configuração [{FILENAME}] não encontrado no diretório atual!') 
+    
     info('Configurando automação a paritir do arquivo de configuração')
     data_config = pd.read_excel(config_filepath, 'Dados Configuráveis', header=1)
     columns_to_check = ['Tipo', 'Dado']
@@ -75,14 +76,22 @@ def load_configs() -> dict:
     configs['DEVELOPER_LIFE_NAME'] = devlife[-1] if len(devlife) > 0 else 'VIDA DE DESENVOLVEDOR DE SOFTWARE - DEVELOPER LIFE'
     
     timetable = data_config[data_config['Tipo'] == 'Nova Grade']['Dado'].apply(cleaner).unique()
-    configs['NEW_TIMETABLE'] = timetable[-1] == 'Sim' if len(timetable) > 0 else False
+    is_new_timetable= timetable[-1] == 'Sim' if len(timetable) > 0 else False
+    
+    configs['FIXED_START_HOURS'] = ['07:30', '09:45', '12:00', '14:15', '16:30', '19:00'] if is_new_timetable else  ['07:30', '09:45', '12:00', '13:30', '15:45', '18:00'] 
+    configs['FIXED_END_HOURS'] = ['09:30', '11:45', '14:00', '16:15', '18:30', '21:00'] if is_new_timetable else ['09:30', '11:45', '13:15', '15:30', '17:45' ,'20:00']
     
     success(f'configurações realizadas com sucesso!')
     return configs
 
-def remove_by_filters(data:pd.DataFrame) -> pd.DataFrame:
+def remove_by_filters(abs_path:str, data:pd.DataFrame) -> pd.DataFrame:
+    
+    config_filepath = path.join(abs_path, FILENAME)
+    if not path.isfile(config_filepath):
+        raise FileNotFoundError(f'Arquivo de configuração [{FILENAME}] não encontrado no diretório atual!') 
+    
     info('Removendo horários solicitados manualmente')
-    data_filters_raw = pd.read_excel(filename, 'Remoção Horários Space', header=1)
+    data_filters_raw = pd.read_excel(FILENAME, 'Remoção Horários Space', header=1)
     columns_to_check = ['Curso', 'Série', 'Turma', 'Nome da Disciplina']
     for i, row in data_filters_raw.iterrows():
         if row[columns_to_check].isnull().any():

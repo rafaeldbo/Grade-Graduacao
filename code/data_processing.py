@@ -3,17 +3,12 @@ import unicodedata
 
 import urllib
 from sqlalchemy import create_engine, Engine
-from dotenv import load_dotenv
-import warnings
 from os import getenv, path
+from sys import exit
 
-load_dotenv(override=True)
-ABS_PATH = path.abspath(path.dirname(__file__))
-warnings.filterwarnings('ignore')
-
-from config_grade import load_manual_data, remove_by_filters
-from utils import info, success, cleaner 
-from settings import CONFIGS, TYPE_PRIORITY, CURRENT_DATE, CURRENT_YEAR, CURRENT_SEMESTER
+from .config_grade import load_manual_data, remove_by_filters
+from .utils import error, info, success, warning, cleaner 
+from .settings import TYPE_PRIORITY, CURRENT_DATE, CURRENT_YEAR, CURRENT_SEMESTER
 
 # Criando a string de conexão manualmente
 params = urllib.parse.quote_plus(
@@ -23,13 +18,6 @@ params = urllib.parse.quote_plus(
     f"UID={getenv('username')};"
     f"PWD={getenv('password')};"
 )
-if 'None' in params:
-    raise ValueError('As Variáveis de Ambiente não foram configuradas corretamente!')
-
-connection_url = f"mssql+pyodbc:///?odbc_connect={params}"
-
-# # Cria a engine do SQLAlchemy
-engine:Engine = create_engine(connection_url)
 
 query = f"""--sql
 WITH temp_tratamento_1 AS (
@@ -121,14 +109,30 @@ SELECT * FROM tb_space
 ORDER BY data_aula, hora_inicio, hora_fim, curso, serie, turma;
 """
 
-def load_space_data() -> pd.DataFrame:
-
-
+def load_space_data(abs_path:str, confs:dict) -> pd.DataFrame:
     # ================================================== Dados de entrada ==================================================
-
     info('Extraindo dados do Banco de Dados')
-    
-    df_space = pd.read_sql(query, engine)
+    if 'None' not in params:
+        connection_url = f"mssql+pyodbc:///?odbc_connect={params}"
+        engine:Engine = create_engine(connection_url)
+        df_space = pd.read_sql(query, engine)
+    else:
+        data_path = path.join(abs_path, getenv('data_file', 'space.csv'))
+        if path.isfile(data_path):
+            warning('As Variáveis de Ambiente não foram configuradas corretamente! Não é possível utilizar o banco de dados.')
+            info('Utilizando dados de local')
+            
+            df_space = pd.read_csv(data_path)
+            df_space['data_aula'] = pd.to_datetime(df_space['data_aula'])
+            df_space['periodo'] = df_space['periodo'].astype('str')
+            df_space['hora_inicio'] = pd.to_datetime(df_space['hora_inicio'])
+            df_space['hora_fim'] = pd.to_datetime(df_space['hora_fim'])
+            df_space['serie'] = df_space['serie'].astype('int64')
+            df_space['dt_atualizacao'] = pd.to_datetime(df_space['dt_atualizacao'], format='mixed')
+        else:
+            error('Não foi possível encontrar nenhuma base de dados para carregar os dados do Space')
+            print('Verifique se o arquivo foi baixado corretamente ou que você configurou as variáveis de ambiente corretamente.')
+            exit()
     
     success('Dados carregados!')
     info('Processando dados')
@@ -149,9 +153,9 @@ def load_space_data() -> pd.DataFrame:
 
     data_cleaned = data_cleaned[~data_cleaned['nome_disciplina'].isin(['PROJETO FINAL - CAPSTONE'])] # CAPSTONE será tratado manualmente
     data_cleaned = data_cleaned[ # as aulas do DEVELOPER LIFE serão tratadas manualmente devido a variação dos nomes das disciplinas filhas
-        ((data_cleaned['nome_disciplina'] == CONFIGS['DEVELOPER_LIFE_NAME']) 
+        ((data_cleaned['nome_disciplina'] == confs['DEVELOPER_LIFE_NAME']) 
         & (data_cleaned['tipo_atividade'] == 'ATENDIMENTO / PLANTÃO')) 
-        | (data_cleaned['nome_disciplina'] != CONFIGS['DEVELOPER_LIFE_NAME'])
+        | (data_cleaned['nome_disciplina'] != confs['DEVELOPER_LIFE_NAME'])
     ]
 
     # removendo acentos do nome dos professores
@@ -188,7 +192,7 @@ def load_space_data() -> pd.DataFrame:
     def Treat_docente(row: pd.Series) -> pd.Series:
         if row['tipo_atividade'] in ['AULA', 'ATIVIDADE EXTRA CURRICULAR', 'ATENDIMENTO / PLANTÃO']:
             docente = row['docentes'].split(' / ')
-            true_docente = [professor.strip() for professor in docente if professor not in CONFIGS['ASSISTANT_PROFESSORS']]
+            true_docente = [professor.strip() for professor in docente if professor not in confs['ASSISTANT_PROFESSORS']]
             row['titular'] = ' / '.join(true_docente)
         return row
 
@@ -225,7 +229,7 @@ def load_space_data() -> pd.DataFrame:
 
     # gambiarra para disciplinas especiais (como CAPSTONE E REP) que mostram o horário no local do docente
     def gambirra_special_titular(row: pd.Series) -> pd.Series:
-        if (row['nome_disciplina'] in CONFIGS['EXCLUSIVE_TIMETABLE']):
+        if (row['nome_disciplina'] in confs['EXCLUSIVE_TIMETABLE']):
             start_date = df_space[df_space['nome_disciplina'] == row['nome_disciplina']]['data_aula'].min()
             end_date = df_space[df_space['nome_disciplina'] == row['nome_disciplina']]['data_aula'].max()
             row['titular'] = f"{start_date.strftime('%H%M')} a {end_date.strftime('%H%M')}"
@@ -235,7 +239,7 @@ def load_space_data() -> pd.DataFrame:
 
     # Separando turmas unidas (disciplinas de Tópicos)
     def treat_turma(row: pd.Series) -> pd.DataFrame:
-        if (row['nome_disciplina'] in CONFIGS['DISCIPLINES_GRUPED_CLASS']) and ('DP' not in row['turma']) and (len(row['turma']) > 1):
+        if (row['nome_disciplina'] in confs['DISCIPLINES_GRUPED_CLASS']) and ('DP' not in row['turma']) and (len(row['turma']) > 1):
             new_rows = []
             for turma_part in row['turma']:
                 new_row = row.copy()
@@ -243,7 +247,7 @@ def load_space_data() -> pd.DataFrame:
                 new_row['cod_turma'] = f"{row['curso']}_{row['serie']}{turma_part}"
                 new_rows.append(new_row)
             return pd.DataFrame(new_rows)
-        if (row['nome_disciplina'] in CONFIGS['EXCLUSIVE_TIMETABLE']):
+        if (row['nome_disciplina'] in confs['EXCLUSIVE_TIMETABLE']):
             row['turma'] = 'Z@'+row['turma']
         return pd.DataFrame([row])
         
@@ -268,18 +272,18 @@ def load_space_data() -> pd.DataFrame:
     max_contagem = data_serie_treated.groupby(['cod_turma'])['contagem'].max().reset_index(name='max')
     data_slots_options = data_serie_treated.merge(max_contagem, on=['cod_turma'], how='left')
     data_slots_options['min_aulas'] = data_slots_options['max'].fillna(0).apply(lambda x: min([max([x//4, 4]), x]))
-    data_slots_options.loc[data_slots_options['nome_disciplina'].isin(CONFIGS['EXCLUSIVE_TIMETABLE']), 'min_aulas'] = data_slots_options.loc[data_slots_options['nome_disciplina'].isin(CONFIGS['EXCLUSIVE_TIMETABLE']), 'max']//2 
+    data_slots_options.loc[data_slots_options['nome_disciplina'].isin(confs['EXCLUSIVE_TIMETABLE']), 'min_aulas'] = data_slots_options.loc[data_slots_options['nome_disciplina'].isin(confs['EXCLUSIVE_TIMETABLE']), 'max']//2 
 
     # Filtrando SLOTs de disciplinas de apenas um SLOT
         # Atendimentos e monitorias normalmente possuem apenas um SLOT
     one_slots = data_slots_options[
         (data_slots_options['tipo_atividade'].isin(['ATENDIMENTO / PLANTÃO', 'MONITORIA NINJA', 'MONITORIA'])) 
-        & (~data_slots_options['nome_disciplina'].isin(CONFIGS['DISCIPLINES_2_SLOTS_ATTENDANCE'])) # existrem disciplinas especificas com 2 atendimentos
+        & (~data_slots_options['nome_disciplina'].isin(confs['DISCIPLINES_2_SLOTS_ATTENDANCE'])) # existrem disciplinas especificas com 2 atendimentos
         & ((data_slots_options['n_ocorrencias'] == 1) 
             | (data_slots_options['contagem'] >= data_slots_options['min_aulas']) 
             | (data_slots_options['sala'] == 'AULA REMOTA'))
-        & (~data_slots_options['nome_disciplina'].isin(CONFIGS['EXCLUSIVE_TIMETABLE']))
-        & (data_slots_options['nome_disciplina'] != CONFIGS['DEVELOPER_LIFE_NAME'])
+        & (~data_slots_options['nome_disciplina'].isin(confs['EXCLUSIVE_TIMETABLE']))
+        & (data_slots_options['nome_disciplina'] != confs['DEVELOPER_LIFE_NAME'])
     ]
     one_slots = one_slots\
                     .groupby(['cod_turma', 'nome_disciplina', 'tipo_atividade'], group_keys=False)\
@@ -287,13 +291,13 @@ def load_space_data() -> pd.DataFrame:
                     
     two_slots = data_slots_options[
         ((((~data_slots_options['tipo_atividade'].isin(['ATENDIMENTO / PLANTÃO', 'MONITORIA NINJA', 'MONITORIA'])) 
-            | (data_slots_options['nome_disciplina'].isin(CONFIGS['DISCIPLINES_2_SLOTS_ATTENDANCE'])))
-                & (~data_slots_options['nome_disciplina'].isin(CONFIGS['DISCIPLINES_4_SLOTS_CLASS'])))
+            | (data_slots_options['nome_disciplina'].isin(confs['DISCIPLINES_2_SLOTS_ATTENDANCE'])))
+                & (~data_slots_options['nome_disciplina'].isin(confs['DISCIPLINES_4_SLOTS_CLASS'])))
             | (data_slots_options['tipo_atividade'] == 'ATIVIDADE EXTRA CURRICULAR'))
         & ((data_slots_options['contagem'] >= data_slots_options['min_aulas']) 
             | (data_slots_options['sala'] == 'AULA REMOTA'))
-        & (~data_slots_options['nome_disciplina'].isin(CONFIGS['EXCLUSIVE_TIMETABLE']))
-        & (data_slots_options['nome_disciplina'] != CONFIGS['DEVELOPER_LIFE_NAME'])
+        & (~data_slots_options['nome_disciplina'].isin(confs['EXCLUSIVE_TIMETABLE']))
+        & (data_slots_options['nome_disciplina'] != confs['DEVELOPER_LIFE_NAME'])
     ]                
     two_slots = two_slots\
                     .groupby(['cod_turma', 'nome_disciplina', 'tipo_atividade'], group_keys=False)\
@@ -301,34 +305,34 @@ def load_space_data() -> pd.DataFrame:
                     
     four_slots = data_slots_options[
         (data_slots_options['tipo_atividade'] == 'AULA') 
-        & (data_slots_options['nome_disciplina'].isin(CONFIGS['DISCIPLINES_4_SLOTS_CLASS']))
+        & (data_slots_options['nome_disciplina'].isin(confs['DISCIPLINES_4_SLOTS_CLASS']))
         & ((data_slots_options['n_ocorrencias'] == 4) 
             | (data_slots_options['contagem'] >= data_slots_options['min_aulas']) 
             | (data_slots_options['sala'] == 'AULA REMOTA'))
-        & (~data_slots_options['nome_disciplina'].isin(CONFIGS['EXCLUSIVE_TIMETABLE']))
+        & (~data_slots_options['nome_disciplina'].isin(confs['EXCLUSIVE_TIMETABLE']))
     ]
     four_slots = four_slots\
                     .groupby(['cod_turma', 'nome_disciplina', 'tipo_atividade'], group_keys=False)\
                     .apply(lambda group: group.nlargest(4, columns='contagem'))
                     
     special_slots = data_slots_options[
-        (data_slots_options['nome_disciplina'].isin(CONFIGS['EXCLUSIVE_TIMETABLE']))
+        (data_slots_options['nome_disciplina'].isin(confs['EXCLUSIVE_TIMETABLE']))
         & (data_slots_options['contagem'] >= data_slots_options['min_aulas'])
     ]
 
     developer_life_slots = data_slots_options[
-        (data_slots_options['nome_disciplina'] == CONFIGS['DEVELOPER_LIFE_NAME'])
+        (data_slots_options['nome_disciplina'] == confs['DEVELOPER_LIFE_NAME'])
         & (data_slots_options['tipo_atividade'] == 'ATENDIMENTO / PLANTÃO')
         & (data_slots_options['contagem'] >= data_slots_options['min_aulas'])
     ]
 
     data_slots = pd.concat([one_slots, two_slots, four_slots, special_slots, developer_life_slots])
-    data_slots.loc[data_slots['nome_disciplina'] == CONFIGS['DEVELOPER_LIFE_NAME'], 'nome_disciplina'] = 'DEVELOPER LIFE'
+    data_slots.loc[data_slots['nome_disciplina'] == confs['DEVELOPER_LIFE_NAME'], 'nome_disciplina'] = 'DEVELOPER LIFE'
     data_slots['Origem'] = 'Reserva Acadêmica'
 
     # ================================================== Pós Processamento dos Dados ==================================================
 
-    data_manual = load_manual_data()
+    data_manual = load_manual_data(abs_path)
     data_manual['serie'] = data_manual.apply(treat_serie, axis=1)
     data_full = pd.concat([data_slots, data_manual], ignore_index=True)
     
@@ -351,7 +355,7 @@ def load_space_data() -> pd.DataFrame:
     data_slots_colored = data_full.copy()
     data_slots_colored['cor'] = data_slots_colored.apply(assign_color, axis=1)
     
-    data_slots_filtred = remove_by_filters(data_slots_colored)
+    data_slots_filtred = remove_by_filters(abs_path, data_slots_colored)
 
     # precisa de refatoração 
     def position_class(data: pd.DataFrame) -> pd.DataFrame:
@@ -384,7 +388,7 @@ def load_space_data() -> pd.DataFrame:
 
     data_slots_positioned = data_slots_filtred.groupby(['cod_turma', 'dia_semana']).apply(position_class).reset_index(drop=True)
     data_slots_positioned['posicao'] = data_slots_positioned.apply(
-        lambda row: -2 if (row['tipo_atividade'] == 'MONITORIA NINJA' and row['nome_disciplina'] not in CONFIGS['NINJA_MONITORIES']) else row['posicao'], 
+        lambda row: -2 if (row['tipo_atividade'] == 'MONITORIA NINJA' and row['nome_disciplina'] not in confs['NINJA_MONITORIES']) else row['posicao'], 
         axis=1
     )
 

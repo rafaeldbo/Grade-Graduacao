@@ -7,11 +7,6 @@ from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.worksheet.pagebreak import Break
 
 from datetime import datetime
-import warnings
-
-warnings.filterwarnings('ignore')
-
-from config_grade import load_configs
 
 # Definições de Tamanhos
 CM2PIXEL = 37.7952755906
@@ -96,8 +91,6 @@ SHEET_TYPES = [
     'COM ATEND.',
 ]
 
-CONFIGS = load_configs()
-
 TYPE_PRIORITY = {
     'AULA': 3,
     'ATIVIDADE EXTRA CURRICULAR': 3,
@@ -107,10 +100,6 @@ TYPE_PRIORITY = {
     'DIA RESERVADO': -1,
     'BANCA / APRESENTAÇÃO': -2,
 }
-
-# Definição de horários fixos para aulas
-FIXED_START_HOURS = ['07:30', '09:45', '12:00', '14:15', '16:30', '19:00'] if CONFIGS['NEW_TIMETABLE'] else  ['07:30', '09:45', '12:00', '13:30', '15:45', '18:00'] 
-FIXED_END_HOURS = ['09:30', '11:45', '14:00', '16:15', '18:30', '21:00'] if CONFIGS['NEW_TIMETABLE'] else ['09:30', '11:45', '13:15', '15:30', '17:45' ,'20:00']
 
 def col_number(column: str) -> int:
     return column_index_from_string(column)
